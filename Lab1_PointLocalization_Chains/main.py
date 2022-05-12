@@ -1,9 +1,8 @@
 import copy
+import math
+import sys
 
 import matplotlib.pyplot as plt
-import math
-import random
-
 import numpy
 
 
@@ -62,6 +61,22 @@ class Vertex:
 
     def plot(self, ax):
         ax.scatter(self.x, self.y, cmap='winter', color="green")
+
+        x_min, x_max = ax.get_xlim()
+        y_min, y_max = ax.get_ylim()
+
+        if self.x >= x_max:
+            ax.set_xlim(x_min, math.ceil(self.x + 1))
+
+        if self.y >= y_max:
+            ax.set_ylim(y_min, math.ceil(self.y + 1))
+
+        if self.x <= x_min:
+            ax.set_xlim(math.ceil(self.x - 1), x_max)
+
+        if self.y <= y_min:
+            ax.set_xlim(math.ceil(self.y - 1), y_max)
+
         return ax
 
 
@@ -166,8 +181,7 @@ class Graph:
     def balance_algorithm(self):
         self.init_weights()
 
-        for i, vertex in enumerate(self.vertices):
-            vertex.create_in_out_lists()
+        self.prepare_in_out_lists()
 
         for index in range(1, len(self.vertices) - 1):
             current_vertex = self.vertices[index]
@@ -198,6 +212,29 @@ class Graph:
             if w_out > w_in:
                 self.weights[leftest_vertex.n][current_vertex.n] += w_out - w_in
                 self.weights[current_vertex.n][leftest_vertex.n] = self.weights[leftest_vertex.n][current_vertex.n]
+
+    def prepare_in_out_lists(self):
+        for i, vertex in enumerate(self.vertices):
+            vertex.create_in_out_lists()
+
+    def get_edges_at_y(self, y_coordinate):
+        edges = []
+
+        for vertex in self.vertices:
+            for another_vertex in vertex.neighbours:
+                if vertex.y >= y_coordinate >= another_vertex.y or vertex.y <= y_coordinate <= another_vertex.y:
+                    edge = [vertex, another_vertex]
+                    edge.sort()
+                    is_exist = False
+                    for current_edge in edges:
+                        if current_edge == edge:
+                            is_exist = True
+                            break
+                    if not is_exist:
+                        edges.append(edge)
+
+        return sorted(edges, key=lambda edge: (((y_coordinate - edge[0].y) * (edge[1].x - edge[0].x)) /
+                                               (edge[1].y - edge[0].y) + edge[0].x))
 
 
 def point_localization(current_chains, point):
@@ -239,8 +276,8 @@ def is_left(chain_point_1, chain_point_2, point):
 
 
 def sort_clockwise(vertices: list, center_vertex):
-    return sorted(vertices, key=lambda first: math.atan2(first.y - center_vertex.y,
-                                                         first.x - center_vertex.x), reverse=True)
+    return sorted(vertices, key=lambda vertex: math.atan2(vertex.y - center_vertex.y,
+                                                          vertex.x - center_vertex.x), reverse=True)
 
 
 def graph_from_file(path):
@@ -266,12 +303,6 @@ def graph_from_file(path):
     return file_graph, Vertex(float(coordinates[0]), float(coordinates[1]), -1)
 
 
-def random_color():
-    rgbl = [255, 0, 0]
-    random.shuffle(rgbl)
-    return tuple(rgbl)
-
-
 def plot_chain(chain, ax, color, shift):
     for i in range(1, len(chain)):
         ax.plot([chain[i - 1].x + shift, chain[i].x + shift], [chain[i - 1].y + shift, chain[i].y + shift], color=color)
@@ -280,24 +311,25 @@ def plot_chain(chain, ax, color, shift):
 
 
 if __name__ == '__main__':
-    graph, point = graph_from_file("input.txt")
+    eps = 1e-4
+    graph, point = graph_from_file(sys.argv[1])
 
     chains = graph.find_chains()
     fig, ax = graph.show_plot()
 
-    point.plot(ax)
+    ax = point.plot(ax)
+
+    _, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
 
     for i, chain in enumerate(chains):
-        plot_chain(chain, ax, numpy.random.rand(3, ), numpy.random.rand() * 0.1)
-
-    plt.show()
+        ax = plot_chain(chain, ax, numpy.random.rand(3, ), numpy.random.rand() * 0.1)
 
     _, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
 
     location = point_localization(chains, point)
     for i, chain in enumerate(location):
         if chain is not None:
-            plot_chain(chain, ax, numpy.random.rand(3, ), 0)
+            ax = plot_chain(chain, ax, numpy.random.rand(3, ), 0)
 
-    point.plot(ax)
+    ax = point.plot(ax)
     plt.show()
