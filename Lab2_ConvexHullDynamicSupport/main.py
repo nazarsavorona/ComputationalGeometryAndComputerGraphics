@@ -1,9 +1,15 @@
+import copy
 import sys
 import matplotlib.pyplot as plt
+import numpy
+import pyperclip
 
 from enum import Enum
 
-import numpy
+
+class OperationType(Enum):
+    INSERT = 1
+    DELETE = 2
 
 
 class PointClass(Enum):
@@ -11,6 +17,58 @@ class PointClass(Enum):
     CONCAVE = 2  # CONCAVE
     SUPPORTING = 3  # SUPPORTING
     ERROR = -1
+
+
+class ConvexHull:
+    def __init__(self):
+        self.upper_hull = UpperHull()
+        self.lower_hull = LowerHull()
+
+    def insert(self, insert_point):
+        self.upper_hull.insert(insert_point)
+        self.lower_hull.insert(insert_point)
+
+    def delete(self, delete_point):
+        self.upper_hull.delete(delete_point)
+        self.lower_hull.delete(delete_point)
+
+    def plot(self, fig, ax):
+        self.upper_hull.plot(fig, ax)
+        return self.lower_hull.plot(fig, ax)
+
+
+class UpperHull:
+    def __init__(self):
+        self.bst = RedBlackTree()
+
+    def insert(self, insert_point):
+        self.bst.insert(insert_point)
+
+    def delete(self, delete_point):
+        self.bst.delete(delete_point)
+
+    def plot(self, fig, ax):
+        return self.bst.plot(fig, ax)
+
+
+class LowerHull:
+    def __init__(self):
+        self.bst = RedBlackTree()
+
+    def insert(self, insert_point):
+        to_insert = copy.deepcopy(insert_point)
+        to_insert.y *= -1
+
+        self.bst.insert(to_insert)
+
+    def delete(self, delete_point):
+        to_delete = copy.deepcopy(delete_point)
+        to_delete.y *= -1
+
+        self.bst.delete(to_delete)
+
+    def plot(self, fig, ax):
+        return self.bst.plot(fig, ax, reverse=True)
 
 
 class Point:
@@ -32,6 +90,7 @@ class NodeData:
         self.points_array = []
         self.separating_index = 0
         self.convex_hull = []
+        self.graph_hull = []
         self.convex_hull.append(key)
 
     def __lt__(self, other):
@@ -65,24 +124,37 @@ class Node:
     def __repr__(self):
         return str(f"{self.id}: {self.data}")
 
-    def plot(self, fig, ax, TNULL):
+    def plot(self, fig, ax, TNULL, reverse=False):
         if self is None or self == TNULL:
             return fig, ax
 
         if self.left == TNULL:
-            _x, _y, = self.data.left_most_right_point.x, self.data.left_most_right_point.y
+            _x, _y = self.data.left_most_right_point.x, self.data.left_most_right_point.y
+            if reverse:
+                _y *= -1
             ax.scatter([_x], [_y], color="green")
             ax.annotate(f"({_x}; {_y})", (_x, _y), xytext=(_x - 0.025, _y + 0.1))
             return fig, ax
 
-        chain = self.data.convex_hull
+        chain = self.data.graph_hull
+        if self.parent == TNULL:
+            chain = self.data.points_array
         color = numpy.random.rand(3, )
 
         for i in range(1, len(chain)):
-            ax.plot([chain[i - 1].x, chain[i].x], [chain[i - 1].y, chain[i].y], color=color)
+            if reverse:
+                ax.plot([chain[i - 1].x, chain[i].x], [-1 * chain[i - 1].y, -1 * chain[i].y], color=color)
+            else:
+                ax.plot([chain[i - 1].x, chain[i].x], [chain[i - 1].y, chain[i].y], color=color)
 
-        self.left.plot(fig, ax, TNULL)
-        return self.right.plot(fig, ax, TNULL)
+        if self.left != TNULL:
+            self.left.data.graph_hull = chain[:self.data.separating_index + 1] + self.left.data.points_array
+
+        if self.right != TNULL:
+            self.right.data.graph_hull = self.right.data.points_array + chain[self.data.separating_index + 1:]
+
+        self.left.plot(fig, ax, TNULL, reverse)
+        return self.right.plot(fig, ax, TNULL, reverse)
 
     def graph_viz(self, TNULL, wrapper):
         if self is None or self == TNULL:
@@ -98,6 +170,8 @@ class Node:
             wrapper[0] += f"\"{self}\" -> \"{self.left}\" [label = \"left\"]\n"
         if self.right != TNULL:
             wrapper[0] += f"\"{self}\" -> \"{self.right}\" [label = \"right\"]\n"
+        # if self.parent != TNULL:
+        #     wrapper[0] += f"\"{self}\" -> \"{self.parent}\" [label = \"parent\"]\n"
 
         self.left.graph_viz(TNULL, wrapper)
         self.right.graph_viz(TNULL, wrapper)
@@ -112,31 +186,31 @@ class RedBlackTree:
         self.TNULL.right = None
         self.root = self.TNULL
 
-    def __pre_order_helper(self, node):
-        if node != self.TNULL:
-            sys.stdout.write(node.data + " ")
-            self.__pre_order_helper(node.left)
-            self.__pre_order_helper(node.right)
-
-    def __in_order_helper(self, node):
-        if node != self.TNULL:
-            self.__in_order_helper(node.left)
-            sys.stdout.write(node.data + " ")
-            self.__in_order_helper(node.right)
-
-    def __post_order_helper(self, node):
-        if node != self.TNULL:
-            self.__post_order_helper(node.left)
-            self.__post_order_helper(node.right)
-            sys.stdout.write(node.data + " ")
-
-    def __search_tree_helper(self, node, key):
-        if node == self.TNULL or key == node.data:
-            return node
-
-        if key < node.data:
-            return self.__search_tree_helper(node.left, key)
-        return self.__search_tree_helper(node.right, key)
+    # def __pre_order_helper(self, node):
+    #     if node != self.TNULL:
+    #         sys.stdout.write(node.data + " ")
+    #         self.__pre_order_helper(node.left)
+    #         self.__pre_order_helper(node.right)
+    #
+    # def __in_order_helper(self, node):
+    #     if node != self.TNULL:
+    #         self.__in_order_helper(node.left)
+    #         sys.stdout.write(node.data + " ")
+    #         self.__in_order_helper(node.right)
+    #
+    # def __post_order_helper(self, node):
+    #     if node != self.TNULL:
+    #         self.__post_order_helper(node.left)
+    #         self.__post_order_helper(node.right)
+    #         sys.stdout.write(node.data + " ")
+    #
+    # def __search_tree_helper(self, node, key):
+    #     if node == self.TNULL or key == node.data:
+    #         return node
+    #
+    #     if key < node.data:
+    #         return self.__search_tree_helper(node.left, key)
+    #     return self.__search_tree_helper(node.right, key)
 
     # fix the rb tree modified by the delete operation
     def __fix_delete(self, x):
@@ -197,65 +271,66 @@ class RedBlackTree:
                     x = self.root
         x.color = NodeColor.BLACK
 
-    def __rb_transplant(self, u, v):
-        if u.parent is None:
-            self.root = v
-        elif u == u.parent.left:
-            u.parent.left = v
-        else:
-            u.parent.right = v
-        v.parent = u.parent
-
-    def __delete_node_helper(self, node, key):
-        # find the node containing key
-        z = self.TNULL
-        while node != self.TNULL:
-            if node.data == key:
-                z = node
-
-            if node.data <= key:
-                node = node.right
-            else:
-                node = node.left
-
-        if z == self.TNULL:
-            print("Couldn't find key in the tree")
-            return
-
-        y = z
-        y_original_color = y.color
-        if z.left == self.TNULL:
-            x = z.right
-            self.__rb_transplant(z, z.right)
-        elif (z.right == self.TNULL):
-            x = z.left
-            self.__rb_transplant(z, z.left)
-        else:
-            y = self.minimum(z.right)
-            y_original_color = y.color
-            x = y.right
-            if y.parent == z:
-                x.parent = y
-            else:
-                self.__rb_transplant(y, y.right)
-                y.right = z.right
-                y.right.parent = y
-
-            self.__rb_transplant(z, y)
-            y.left = z.left
-            y.left.parent = y
-            y.color = z.color
-        if y_original_color == NodeColor.BLACK:
-            self.__fix_delete(x)
+    # def __rb_transplant(self, u, v):
+    #     if u.parent is None:
+    #         self.root = v
+    #     elif u == u.parent.left:
+    #         u.parent.left = v
+    #     else:
+    #         u.parent.right = v
+    #     v.parent = u.parent
+    #
+    # def __delete_node_helper(self, node, key):
+    #     # find the node containing key
+    #     z = self.TNULL
+    #     while node != self.TNULL:
+    #         if node.data == key:
+    #             z = node
+    #
+    #         if node.data <= key:
+    #             node = node.right
+    #         else:
+    #             node = node.left
+    #
+    #     if z == self.TNULL:
+    #         print("Couldn't find key in the tree")
+    #         return
+    #
+    #     y = z
+    #     y_original_color = y.color
+    #     if z.left == self.TNULL:
+    #         x = z.right
+    #         self.__rb_transplant(z, z.right)
+    #     elif (z.right == self.TNULL):
+    #         x = z.left
+    #         self.__rb_transplant(z, z.left)
+    #     else:
+    #         y = self.minimum(z.right)
+    #         y_original_color = y.color
+    #         x = y.right
+    #         if y.parent == z:
+    #             x.parent = y
+    #         else:
+    #             self.__rb_transplant(y, y.right)
+    #             y.right = z.right
+    #             y.right.parent = y
+    #
+    #         self.__rb_transplant(z, y)
+    #         y.left = z.left
+    #         y.left.parent = y
+    #         y.color = z.color
+    #     if y_original_color == NodeColor.BLACK:
+    #         self.__fix_delete(x)
 
     # fix the red-black tree
     def __fix_insert(self, k):
+        # print(self.graph_viz())
         while k.parent.color == NodeColor.RED:
-            if k.parent.parent == self.TNULL:
-                k.parent.color = NodeColor.BLACK
-                k.parent.left.color = NodeColor.RED
-                k.parent.right.color = NodeColor.RED
-                return
+            # if k.parent.parent == self.TNULL:
+            #     k.parent.color = NodeColor.BLACK
+            #     k.parent.left.color = NodeColor.RED
+            #     k.parent.right.color = NodeColor.RED
+            #     return
             if k.parent == k.parent.parent.right:
                 u = k.parent.parent.left  # uncle
                 if u.color == NodeColor.RED:
@@ -267,8 +342,9 @@ class RedBlackTree:
                 else:
                     if k == k.parent.left:
                         # case 3.2.2
+                        if k.left != self.TNULL:
+                            self.right_rotate(k.parent)
                         k = k.parent
-                        self.right_rotate(k)
                     # case 3.2.1
                     k.parent.color = NodeColor.BLACK
                     k.parent.parent.color = NodeColor.RED
@@ -285,8 +361,9 @@ class RedBlackTree:
                 else:
                     if k == k.parent.right:
                         # mirror case 3.2.2
+                        if k.left != self.TNULL:
+                            self.left_rotate(k.parent)
                         k = k.parent
-                        self.left_rotate(k)
                     # mirror case 3.2.1
                     k.parent.color = NodeColor.BLACK
                     k.parent.parent.color = NodeColor.RED
@@ -295,43 +372,44 @@ class RedBlackTree:
                 break
         self.root.color = NodeColor.BLACK
 
-    def __print_helper(self, node, indent, last):
-        # print the tree structure on the screen
-        if node != self.TNULL:
-            sys.stdout.write(indent)
-            if last:
-                sys.stdout.write("R----")
-                indent += "     "
-            else:
-                sys.stdout.write("L----")
-                indent += "|    "
-
-            s_color = "RED" if node.color == NodeColor.RED else "BLACK"
-            print(str(node.data) + "(" + s_color + ")")
-            self.__print_helper(node.left, indent, False)
-            self.__print_helper(node.right, indent, True)
-
-    # Pre-Order traversal
-    # Node.Left Subtree.Right Subtree
-    def preorder(self):
-        self.__pre_order_helper(self.root)
-
-    # In-Order traversal
-    # left Subtree . Node . Right Subtree
-    def inorder(self):
-        self.__in_order_helper(self.root)
-
-    # Post-Order traversal
-    # Left Subtree . Right Subtree . Node
-    def postorder(self):
-        self.__post_order_helper(self.root)
-
-    # search the tree for the key k
-    # and return the corresponding node
-    def searchTree(self, k):
-        return self.__search_tree_helper(self.root, k)
+    # def __print_helper(self, node, indent, last):
+    #     # print the tree structure on the screen
+    #     if node != self.TNULL:
+    #         sys.stdout.write(indent)
+    #         if last:
+    #             sys.stdout.write("R----")
+    #             indent += "     "
+    #         else:
+    #             sys.stdout.write("L----")
+    #             indent += "|    "
+    #
+    #         s_color = "RED" if node.color == NodeColor.RED else "BLACK"
+    #         print(str(node.data) + "(" + s_color + ")")
+    #         self.__print_helper(node.left, indent, False)
+    #         self.__print_helper(node.right, indent, True)
+    #
+    # # Pre-Order traversal
+    # # Node.Left Subtree.Right Subtree
+    # def preorder(self):
+    #     self.__pre_order_helper(self.root)
+    #
+    # # In-Order traversal
+    # # left Subtree . Node . Right Subtree
+    # def inorder(self):
+    #     self.__in_order_helper(self.root)
+    #
+    # # Post-Order traversal
+    # # Left Subtree . Right Subtree . Node
+    # def postorder(self):
+    #     self.__post_order_helper(self.root)
+    #
+    # # search the tree for the key k
+    # # and return the corresponding node
+    # def searchTree(self, k):
+    #     return self.__search_tree_helper(self.root, k)
 
     # find the node with the minimum key
+
     def minimum(self, node):
         while node.left != self.TNULL:
             node = node.left
@@ -376,7 +454,18 @@ class RedBlackTree:
 
     # rotate left at node x
     def left_rotate(self, x):
+        # print(f"Before left rotate at {x}")
+        # print(self.graph_viz())
+        temp_array = x.data.points_array
+
         y = x.right
+        temp_j = x.data.separating_index + 1
+
+        x.data.points_array = x.right.data.points_array
+        x.right.data.points_array = temp_array
+
+        y.data.separating_index += temp_j
+
         x.right = y.left
         if y.left != self.TNULL:
             y.left.parent = x
@@ -390,10 +479,23 @@ class RedBlackTree:
             x.parent.right = y
         y.left = x
         x.parent = y
+        # print(f"After left rotate at {x}")
+        # print(self.graph_viz())
 
     # rotate right at node x
     def right_rotate(self, x):
+        # print(f"Before right rotate at {x}")
+        # print(self.graph_viz())
+        temp_array = x.data.points_array
+
         y = x.left
+        temp_j = y.data.separating_index + 1
+
+        x.data.points_array = x.left.data.points_array
+        x.left.data.points_array = temp_array
+
+        x.data.separating_index -= temp_j
+
         x.left = y.right
         if y.right != self.TNULL:
             y.right.parent = x
@@ -407,6 +509,8 @@ class RedBlackTree:
             x.parent.left = y
         y.right = x
         x.parent = y
+        # print(f"After right rotate at {x}")
+        # print(self.graph_viz())
 
     # insert the key to the tree in its appropriate position
     # and fix the tree
@@ -472,28 +576,16 @@ class RedBlackTree:
             new_node_parent.right = right_neighbour
 
             new_node_parent.parent = right_neighbour.parent
-            right_neighbour.parent.left = new_node_parent
+
+            neighbour_side = self.node_side(right_neighbour)
+            if neighbour_side == -1:
+                right_neighbour.parent.left = new_node_parent
+            else:
+                right_neighbour.parent.right = new_node_parent
 
             right_neighbour.parent = new_node_parent
 
         self.up(node)
-
-        # while x != self.TNULL:
-        #     y = x
-        #     if node.data < x.data:
-        #         x = x.left
-        #     else:
-        #         x = x.right
-        #
-        # # y is parent of x
-        # node.parent = y
-        # if y is None:
-        #     self.root = node
-        # elif node.data < y.data:
-        #     y.left = node
-        # else:
-        #     y.right = node
-        #
 
         # if new node is a root node, simply return
         if node.parent == self.TNULL:
@@ -505,11 +597,19 @@ class RedBlackTree:
             return
 
         # Fix the tree
-        self.__fix_insert(node)
+        # self.__fix_insert(node)
+
+    def node_side(self, node):
+        if node.parent.left == node:
+            return -1
+        elif node.parent.right == node:
+            return 1
+        else:
+            return 0
 
     def down(self, current_node: Node, point: Point, left_neighbour: Node, right_neighbour: Node):
         if current_node.left == self.TNULL:
-            if point.x < current_node.data.left_most_right_point.x:
+            if point.x <= current_node.data.left_most_right_point.x:
                 right_neighbour = current_node
             else:
                 left_neighbour = current_node
@@ -527,7 +627,7 @@ class RedBlackTree:
         if right_son.left != self.TNULL:
             right_son.data.convex_hull = right_son.data.points_array + right_queue
 
-        if point.x < current_node.data.left_most_right_point.x:
+        if point.x <= current_node.data.left_most_right_point.x:
             right_neighbour = current_node
             current_node = current_node.left
 
@@ -583,17 +683,55 @@ class RedBlackTree:
         return self.root
 
     # delete the node from the tree
-    def delete_node(self, data):
-        self.__delete_node_helper(self.root, data)
+    def delete(self, data):
+        node = Node(NodeData(data))
+        node.parent = None
+        node.data.left_most_right = node
+        node.left = self.TNULL
+        node.right = self.TNULL
+        node.color = NodeColor.RED  # new node must be red
 
-    # print the tree structure on the screen
-    def pretty_print(self):
-        self.__print_helper(self.root, "", True)
+        x = self.root
 
-    def plot(self):
-        fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+        left_neighbour = None
+        to_delete_node = None
 
-        return self.get_root().plot(fig, ax, self.TNULL)
+        _, to_delete_node = self.down(x, data, left_neighbour, to_delete_node)
+
+        if to_delete_node is None or \
+                (to_delete_node.data.left_most_right_point.x != data.x or
+                 to_delete_node.data.left_most_right_point.y != data.y):
+            print("There is no such point among added from set")
+        elif to_delete_node == self.get_root():
+            self.root = self.TNULL
+        elif to_delete_node.parent.parent == self.TNULL:
+            brother, _ = self.find_brother(to_delete_node)
+
+            brother.data.points_array = brother.data.convex_hull
+
+            self.root = brother
+            to_delete_node.parent = self.TNULL
+            print("Deleted successfully!")
+        else:
+            node_parent = to_delete_node.parent
+            brother, side = self.find_brother(to_delete_node)
+
+            side = self.node_side(node_parent)
+
+            if side == -1:
+                node_parent.parent.left = brother
+            elif side == 1:
+                node_parent.parent.right = brother
+
+            brother.parent = node_parent.parent
+            self.up(brother)
+
+    # # print the tree structure on the screen
+    # def pretty_print(self):
+    #     self.__print_helper(self.root, "", True)
+
+    def plot(self, fig, ax, reverse=False):
+        return self.get_root().plot(fig, ax, self.TNULL, reverse=reverse)
 
     def graph_viz(self):
         string = "digraph g {\n"
@@ -637,51 +775,6 @@ def merge_chains(chain_1: [], chain_2: []):
     is_extreme_point_left_2 = False
     is_extreme_point_right_2 = False
 
-    # if len(chain_1) == 2:
-    #     if len(chain_2) == 2:
-    #         types_array = []
-    #
-    #         types_array.append(define_point_type(Point(chain_1[0].x, chain_1[0].y - 1),
-    #                                              chain_1[0],
-    #                                              chain_1[1], chain_2[0]))
-    #         types_array.append(define_point_type(Point(chain_1[0].x, chain_1[0].y - 1),
-    #                                              chain_1[0],
-    #                                              chain_1[1], chain_2[1]))
-    #         types_array.append(define_point_type(chain_1[0],
-    #                                              chain_1[1],
-    #                                              Point(chain_1[1].x, chain_1[1].y - 1), chain_2[0]))
-    #         types_array.append(define_point_type(chain_1[0],
-    #                                              chain_1[1],
-    #                                              Point(chain_1[1].x, chain_1[1].y - 1), chain_2[1]))
-    #         types_array.append(define_point_type(Point(chain_2[0].x, chain_2[0].y - 1),
-    #                                              chain_1[0],
-    #                                              chain_2[1], chain_2[0]))
-    #         types_array.append(define_point_type(chain_2[0],
-    #                                              chain_1[0],
-    #                                              Point(chain_2[1].x, chain_2[1].y - 1), chain_2[1]))
-    #         types_array.append(define_point_type(Point(chain_2[0].x, chain_2[0].y - 1),
-    #                                              chain_1[1],
-    #                                              chain_2[1], chain_2[0]))
-    #         types_array.append(define_point_type(chain_2[0],
-    #                                              chain_1[1],
-    #                                              Point(chain_2[1].x, chain_2[1].y - 1), chain_2[1]))
-    #
-    #         correct_type_index_1 = -1
-    #         correct_type_index_2 = -1
-    #         for i in range(4):
-    #             if types_array[i] == PointClass.SUPPORTING and types_array[i + 4] == PointClass.SUPPORTING:
-    #                 correct_type_index_1 = i
-    #                 correct_type_index_2 = i + 4
-    #                 break
-    #
-    #         q_1 = chain_1[:correct_type_index_1 + 1]
-    #         q_2 = chain_1[correct_type_index_1 + 1:]
-    #         q_3 = chain_2[:correct_type_index_2]
-    #         q_4 = chain_2[correct_type_index_2:]
-    #         j = correct_type_index_1
-    #
-    #         return q_1, q_2, q_3, q_4, j
-
     while True:
         is_extreme_point_left_1 = False
         is_extreme_point_right_1 = False
@@ -691,99 +784,125 @@ def merge_chains(chain_1: [], chain_2: []):
 
         if index_1 == temp_min_1:
             is_extreme_point_left_1 = True
-        elif index_1 == temp_max_1:
+        if index_1 == temp_max_1:
             is_extreme_point_right_1 = True
 
         if index_2 == temp_min_2:
             is_extreme_point_left_2 = True
-        elif index_2 == temp_max_2:
+        if index_2 == temp_max_2:
             is_extreme_point_right_2 = True
 
         type_1 = PointClass.ERROR
         type_2 = PointClass.ERROR
 
-        if is_extreme_point_left_1:
-            type_1 = define_point_type(Point(chain_1[index_1].x, chain_1[index_1].y - 1),
-                                       chain_1[index_1],
-                                       chain_1[index_1 + 1], chain_2[index_2])
+        if is_extreme_point_left_1 and is_extreme_point_right_1:
+            type_1 = PointClass.SUPPORTING
+
+        elif is_extreme_point_left_1:
+            type_1 = define_point_type_left(Point(chain_1[index_1].x, chain_1[index_1].y - 1),
+                                            chain_1[index_1],
+                                            chain_1[index_1 + 1], chain_2[index_2])
         elif is_extreme_point_right_1:
-            type_1 = define_point_type(chain_1[index_1 - 1], chain_1[index_1],
-                                       Point(chain_1[index_1].x, chain_1[index_1].y - 1),
-                                       chain_2[index_2])
+            type_1 = define_point_type_left(chain_1[index_1 - 1], chain_1[index_1],
+                                            Point(chain_1[index_1].x, chain_1[index_1].y - 1),
+                                            chain_2[index_2])
         else:
-            type_1 = define_point_type(chain_1[index_1 - 1], chain_1[index_1], chain_1[index_1 + 1],
-                                       chain_2[index_2])
+            type_1 = define_point_type_left(chain_1[index_1 - 1], chain_1[index_1], chain_1[index_1 + 1],
+                                            chain_2[index_2])
 
-        if is_extreme_point_left_2:
-            type_2 = define_point_type(Point(chain_2[index_2].x, chain_2[index_2].y - 1),
-                                       chain_1[index_1],
-                                       chain_2[index_2 + 1], chain_2[index_2])
+        if is_extreme_point_left_2 and is_extreme_point_right_2:
+            type_2 = PointClass.SUPPORTING
+
+        elif is_extreme_point_left_2:
+            type_2 = define_point_type_right(Point(chain_2[index_2].x, chain_2[index_2].y - 1),
+                                             chain_2[index_2],
+                                             chain_2[index_2 + 1], chain_1[index_1])
         elif is_extreme_point_right_2:
-            type_2 = define_point_type(chain_2[index_2 - 1], chain_1[index_1],
-                                       Point(chain_2[index_2].x, chain_2[index_2].y - 1),
-                                       chain_2[index_2])
+            type_2 = define_point_type_right(chain_2[index_2 - 1], chain_2[index_2],
+                                             Point(chain_2[index_2].x, chain_2[index_2].y - 1),
+                                             chain_1[index_1])
         else:
-            type_2 = define_point_type(chain_2[index_2 - 1], chain_1[index_1], chain_2[index_2 + 1],
-                                       chain_2[index_2])
+            type_2 = define_point_type_right(chain_2[index_2 - 1], chain_2[index_2], chain_2[index_2 + 1],
+                                             chain_1[index_1])
 
-        if type_1 == PointClass.CONCAVE:
-            if type_2 == PointClass.CONCAVE:
-                check_result = concave_concave(chain_1[index_1], chain_1[index_1 + 1], chain_1[temp_max_1 - 1],
-                                               chain_2[temp_min_2], chain_2[index_2 - 1], chain_2[index_2])
-                if check_result == -1:
-                    temp_min_1 = index_1
+        if type_1 == PointClass.CONCAVE and type_2 == PointClass.CONCAVE:
+            check_result = concave_concave(chain_1[index_1], chain_1[index_1 + 1], chain_1[temp_max_1],
+                                           chain_2[temp_min_2], chain_2[index_2 - 1], chain_2[index_2])
+            if check_result == -1:
+                temp_min_1 = index_1
+                if temp_max_1 - index_1 != 1:
                     index_1 = int((index_1 + temp_max_1) / 2)
-                elif check_result == 1:
-                    temp_max_2 = index_2
-                    index_2 = int((temp_min_2 + index_2) / 2)
                 else:
-                    temp_min_1 = index_1
-                    index_1 = int((index_1 + temp_max_1) / 2)
-                    temp_max_2 = index_2
-                    index_2 = int((temp_min_2 + index_2) / 2)
-
+                    index_1 = temp_max_1
+            elif check_result == 1:
+                temp_max_2 = index_2
+                index_2 = int((temp_min_2 + index_2) / 2)
             else:
-                if type_2 == PointClass.SUPPORTING:
-                    temp_min_1 = index_1
+                temp_min_1 = index_1
+                if temp_max_1 - index_1 != 1:
                     index_1 = int((index_1 + temp_max_1) / 2)
+                else:
+                    index_1 = temp_max_1
+                temp_max_2 = index_2
+                index_2 = int((temp_min_2 + index_2) / 2)
 
-                temp_min_2 = index_2
+        elif type_1 == PointClass.CONCAVE and type_2 == PointClass.SUPPORTING:
+            temp_min_1 = index_1
+            if temp_max_1 - index_1 != 1:
+                index_1 = int((index_1 + temp_max_1) / 2)
+            else:
+                index_1 = temp_max_1
+
+            temp_min_2 = index_2
+            # index_2 = int((index_2 + temp_max_2) / 2)
+
+        elif type_1 == PointClass.CONCAVE and type_2 == PointClass.CONVEX:
+            temp_min_2 = index_2
+            if temp_max_2 - index_2 != 1:
                 index_2 = int((index_2 + temp_max_2) / 2)
-
-            if index_1 + temp_max_1 == 1:
-                index_1 = 1
-
-        elif type_1 == PointClass.SUPPORTING:
-            if type_2 == PointClass.SUPPORTING:
-                break
-
             else:
-                temp_max_1 = index_1
-                index_1 = int((temp_min_1 + index_1) / 2)
+                index_2 = temp_max_2
 
-                if type_2 == PointClass.CONCAVE:
-                    temp_max_2 = index_2
-                    index_2 = int((temp_min_2 + index_2) / 2)
-                else:
-                    temp_min_2 = index_2
-                    if index_2 + temp_max_2 == 1:
-                        index_2 = 1
-                    else:
-                        index_2 = int((index_2 + temp_max_2) / 2)
+        elif type_1 == PointClass.SUPPORTING and type_2 == PointClass.CONCAVE:
+            temp_max_1 = index_1
+            # index_1 = int((temp_min_1 + index_1) / 2)
 
-        else:
+            temp_max_2 = index_2
+            index_2 = int((temp_min_2 + index_2) / 2)
+
+        elif type_1 == PointClass.SUPPORTING and type_2 == PointClass.SUPPORTING:
+            break
+
+        elif type_1 == PointClass.SUPPORTING and type_2 == PointClass.CONVEX:
+            temp_max_1 = index_1
+            # index_1 = int((temp_min_1 + index_1) / 2)
+
+            temp_min_2 = index_2
+            if temp_max_2 - index_2 != 1:
+                index_2 = int((index_2 + temp_max_2) / 2)
+            else:
+                index_2 = temp_max_2
+
+        elif type_1 == PointClass.CONVEX and type_2 == PointClass.CONCAVE:
             temp_max_1 = index_1
             index_1 = int((temp_min_1 + index_1) / 2)
 
-            if type_2 == PointClass.SUPPORTING:
-                temp_min_2 = index_2
+        elif type_1 == PointClass.CONVEX and type_2 == PointClass.SUPPORTING:
+            temp_max_1 = index_1
+            index_1 = int((temp_min_1 + index_1) / 2)
+
+            temp_min_2 = index_2
+            # index_2 = int((index_2 + temp_max_2) / 2)
+
+        elif type_1 == PointClass.CONVEX and type_2 == PointClass.CONVEX:
+            temp_max_1 = index_1
+            index_1 = int((temp_min_1 + index_1) / 2)
+
+            temp_min_2 = index_2
+            if temp_max_2 - index_2 != 1:
                 index_2 = int((index_2 + temp_max_2) / 2)
-            elif type_2 == PointClass.CONVEX:
-                temp_min_2 = index_2
-                if index_2 + temp_max_2 == 1:
-                    index_2 = 1
-                else:
-                    index_2 = int((index_2 + temp_max_2) / 2)
+            else:
+                index_2 = temp_max_2
 
     q_1 = chain_1[:index_1 + 1]
     q_2 = chain_1[index_1 + 1:]
@@ -811,7 +930,7 @@ def get_intersect_point(a, b, c, d):
                  / ((a.x - b.x) * (c.y - d.y) - (a.y - b.y) * (c.x - d.x)))
 
 
-def define_point_type(q1_pred: Point, q1: Point, q1_suc: Point, q2: Point):
+def define_point_type_left(q1_pred: Point, q1: Point, q1_suc: Point, q2: Point):
     if is_left(q2, q1, q1_pred) and is_left(q2, q1, q1_suc):
         return PointClass.SUPPORTING
     if is_left(q2, q1, q1_pred) and not is_left(q2, q1, q1_suc):
@@ -820,27 +939,45 @@ def define_point_type(q1_pred: Point, q1: Point, q1_suc: Point, q2: Point):
         return PointClass.CONVEX
 
 
+def define_point_type_right(q2_pred: Point, q2: Point, q2_suc: Point, q1: Point):
+    if not is_left(q1, q2, q2_pred) and not is_left(q1, q2, q2_suc):
+        return PointClass.SUPPORTING
+    if is_left(q1, q2, q2_pred) and not is_left(q1, q2, q2_suc):
+        return PointClass.CONCAVE
+    else:
+        return PointClass.CONVEX
+
+
 def is_left(chain_point_1, chain_point_2, point):
     return ((chain_point_2.x - chain_point_1.x) * (point.y - chain_point_1.y) - (chain_point_2.y - chain_point_1.y) * (
-            point.x - chain_point_1.x)) >= 0
+            point.x - chain_point_1.x)) > 0
+
+
+def points_from_file(path):
+    points_queue = []
+
+    with open(path) as file:
+        while line := file.readline().strip():
+            point_tokens = line.split(sep=" ")
+            operation_type = OperationType.DELETE if point_tokens[0] == "d" else OperationType.INSERT
+
+            points_queue.append([operation_type, Point(float(point_tokens[1]), float(point_tokens[2]))])
+
+    return points_queue
 
 
 if __name__ == "__main__":
-    bst = RedBlackTree()
-    bst.insert(Point(-1, -1))
-    print(bst.graph_viz())
-    # bst.plot()
-    # plt.show()
-    bst.insert(Point(0, 0))
-    print(bst.graph_viz())
-    bst.insert(Point(6, 10))
-    print(bst.graph_viz())
-    bst.insert(Point(3, 8))
-    print(bst.graph_viz())
-    bst.insert(Point(-5, -3))
-    # bst.plot()
-    bst.insert(Point(7, 7))
-    bst.plot()
-    plt.show()
-    bst.insert(Point(100, 8))
-    print(bst.graph_viz())
+    points = points_from_file("input.txt")
+
+    convexHullTree = ConvexHull()
+
+    for operation, point in points:
+        if operation == OperationType.INSERT:
+            convexHullTree.insert(point)
+        if operation == OperationType.DELETE:
+            convexHullTree.delete(point)
+
+        fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+        convexHullTree.plot(fig, ax)
+        plt.show()
+        # pyperclip.copy(bst.graph_viz())
